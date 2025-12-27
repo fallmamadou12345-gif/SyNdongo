@@ -15,7 +15,7 @@ PATH_SY = os.path.join(SAVE_DIR, "base_sy.csv")
 PATH_NDONGO = os.path.join(SAVE_DIR, "base_ndongo.csv")
 LOG_DISCIPLINE = os.path.join(SAVE_DIR, "rapport_discipline.csv")
 
-# --- BASE DE DONNÉES DES AGENTS (ACCÈS SÉCURISÉ) ---
+# --- BASE DE DONNÉES DES AGENTS & CODES PIN ---
 DB_ACCES = {
     "COUMBA BA": "1111",
     "ADAMA MBAYE": "2222",
@@ -23,13 +23,16 @@ DB_ACCES = {
     "EL HADJI THIAM": "4444",
     "ADJA SY": "5555",
     "THIERNO SADOU": "6666",
-    "IBRAHIMA SY": "1000",
+    "IBRAHIMA SY": "1000", # ACCÈS ADMIN
     "MARIETOU": "1044",
     "NDONGO GAYE": "5616",
     "LAMINE NDIAYE": "2055",
-    "ALIOU CISSE": "2010",
-    "ADMIN": "3289"
+    "ALIOU CISSE": "2010", # ACCÈS ADMIN
+    "ADMIN": "3289"        # ACCÈS ADMIN
 }
+
+# Liste des profils autorisés à importer et voir les rapports
+ADMINS_AUTORISES = ["ADMIN", "IBRAHIMA SY", "ALIOU CISSE"]
 
 # --- FONCTIONS TECHNIQUES ---
 
@@ -44,7 +47,6 @@ def standardiser_donnees(df, label_parc):
     if df is None or df.empty: return pd.DataFrame()
     df.columns = df.columns.str.strip().str.replace('"', '').str.replace("'", "")
     
-    # Mapping selon vos modèles (Candidates & Contractors)
     c_nom = trouver_colonne(df, ["Nom complet", "Nom"])
     c_permis = trouver_colonne(df, ["Permis"])
     c_agent = trouver_colonne(df, ["Employé responsable", "Agent"])
@@ -87,8 +89,15 @@ code_pin = st.sidebar.text_input("Entrez votre Code PIN", type="password")
 
 if code_pin == DB_ACCES.get(agent_user):
     base_globale = charger_base_complete()
-    menu = st.sidebar.radio("Navigation", ["🔍 Scanner Anti-Doublon", "📊 Rapport Hebdo", "📥 Importation Yango"])
+    
+    # Restriction des menus
+    if agent_user in ADMINS_AUTORISES:
+        menu = st.sidebar.radio("Navigation", ["🔍 Scanner Anti-Doublon", "📊 Rapport Hebdo", "📥 Importation Yango"])
+    else:
+        st.sidebar.info("🔓 Mode Agent : Scanner déverrouillé")
+        menu = "🔍 Scanner Anti-Doublon"
 
+    # --- ONGLET 1 : LE SCANNER (ACCESSIBLE À TOUS) ---
     if menu == "🔍 Scanner Anti-Doublon":
         st.header("🛡️ Contrôle d'Inscription Obligatoire")
         p_input = st.text_input("Scanner ou Entrer le numéro de Permis")
@@ -99,7 +108,6 @@ if code_pin == DB_ACCES.get(agent_user):
             
             if not match.empty:
                 st.error("🚨 DOUBLON DÉTECTÉ : Ce chauffeur est déjà dans le système !")
-                # Règle : Celui qui a le plus de courses gagne
                 gagnant = match.sort_values(by='COURSES', ascending=False).iloc[0]
                 
                 for _, r in match.iterrows():
@@ -110,36 +118,37 @@ if code_pin == DB_ACCES.get(agent_user):
             else:
                 st.success("✅ LIBRE : Ce permis n'existe pas. Inscription autorisée.")
 
+    # --- ONGLET 2 : RAPPORT (ADMIN SEULEMENT) ---
     elif menu == "📊 Rapport Hebdo":
-        st.header("Analyse des Conflits de la Semaine")
+        st.header("Analyse des Conflits & Discipline")
         if not base_globale.empty:
             doublons = base_globale[base_globale.duplicated(subset=['PERMIS'], keep=False)]
-            
             st.metric("Total Doublons SY/NDONGO", len(doublons)//2)
             
-            if not doublons.empty:
-                st.dataframe(doublons.sort_values(by="PERMIS"), use_container_width=True)
-                csv = doublons.to_csv(index=False, sep=';').encode('utf-8')
-                st.download_button("📥 Télécharger la liste des doublons", csv, "doublons_syndongo.csv")
-            else:
-                st.success("Aucun doublon détecté entre les deux parcs.")
-                
-            st.markdown("---")
-            st.subheader("👮 Journal de Discipline")
-            if os.path.exists(LOG_DISCIPLINE):
-                st.dataframe(pd.read_csv(LOG_DISCIPLINE, sep=';'), use_container_width=True)
+            tab1, tab2 = st.tabs(["🆕 Liste des Doublons", "👮 Journal des Fautes"])
+            with tab1:
+                if not doublons.empty:
+                    st.dataframe(doublons.sort_values(by="PERMIS"), use_container_width=True)
+                    st.download_button("📥 Télécharger Doublons (CSV)", doublons.to_csv(index=False, sep=';').encode('utf-8'), "doublons.csv")
+                else:
+                    st.success("Aucun doublon détecté.")
+            
+            with tab2:
+                if os.path.exists(LOG_DISCIPLINE):
+                    st.dataframe(pd.read_csv(LOG_DISCIPLINE, sep=';'), use_container_width=True)
+                else:
+                    st.info("Aucun incident enregistré.")
 
+    # --- ONGLET 3 : IMPORTATION (ADMIN SEULEMENT) ---
     elif menu == "📥 Importation Yango":
         st.header("Mise à jour Hebdomadaire")
-        st.write("Importez les nouveaux rapports pour actualiser la mémoire du bureau.")
-        up_sy = st.file_uploader("Nouveau fichier SY (CSV)", type="csv")
-        up_nd = st.file_uploader("Nouveau fichier NDONGO (CSV)", type="csv")
-        
+        up_sy = st.file_uploader("Fichier SY (CSV)", type="csv")
+        up_nd = st.file_uploader("Fichier NDONGO (CSV)", type="csv")
         if st.button("🚀 Synchroniser les bases"):
             if up_sy: pd.read_csv(up_sy, sep=';').to_csv(PATH_SY, index=False, sep=';')
             if up_nd: pd.read_csv(up_nd, sep=';').to_csv(PATH_NDONGO, index=False, sep=';')
-            st.success("Bases de données mises à jour !")
+            st.success("Bases de données actualisées !")
             st.rerun()
 else:
     if code_pin: st.sidebar.error("Code PIN incorrect")
-    st.info("👋 Bienvenue. Veuillez entrer votre code PIN à gauche pour déverrouiller le système.")
+    st.info("👋 Veuillez entrer votre code PIN à gauche pour accéder au système.")
