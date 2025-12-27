@@ -20,7 +20,15 @@ DB_ACCES = {
     "COUMBA BA": "1111",
     "ADAMA MBAYE": "2222",
     "RAMATA GAYE": "3333",
-    "ADMIN": "0000"
+    "ADMIN": "3289"
+    "EL HADJI THIAM": "4444",
+    "THIERNO SADOU": "6666",
+    "ADJA SY": "5555",
+    "IBRAHIMA SY": "1000"
+    "MARIETOU": "1044",
+    "NDONGO GAYE": "5616",
+    "LAMINE NDIAYE": "2055",
+    "IBRAHIMA SY": "1000"
 }
 
 # --- FONCTIONS TECHNIQUES ---
@@ -128,4 +136,5 @@ if code_pin == DB_ACCES.get(agent_user):
             st.success("Mémoire actualisée ! Les anciens doublons sont mis à jour.")
             st.rerun()
 else:
+
     st.info("Entrez votre PIN pour accéder au contrôle.")
