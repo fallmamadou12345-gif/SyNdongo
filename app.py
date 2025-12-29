@@ -95,22 +95,26 @@ if code_pin == DB_ACCES.get(agent_user):
                     date_val = log_transfert(agent_user, p_input, gagnant['NOM'], gagnant['PARC'], motif)
                     st.success("✅ Demande enregistrée !")
                     
-                    # --- GÉNÉRATION DU REÇU VISUEL ---
                     st.markdown(f"""
-                    <div style="border:2px solid #000; padding:20px; background-color:#f9f9f9; color:#000; font-family:sans-serif;">
-                        <h2 style="text-align:center;">REÇU DE DEMANDE DE TRANSFERT</h2>
-                        <p style="text-align:center;"><b>BUREAU SYNDONGO - DAKAR</b></p>
-                        <hr>
-                        <p><b>Date :</b> {date_val}</p>
-                        <p><b>Chauffeur :</b> {gagnant['NOM']}</p>
-                        <p><b>Permis :</b> {p_input}</p>
-                        <p><b>Ancien Parc :</b> {gagnant['PARC']}</p>
-                        <p><b>Motif :</b> {motif}</p>
-                        <hr>
-                        <p style="font-size:12px; text-align:center;"><i>Ce document atteste que le chauffeur souhaite migrer ses activités. Sous réserve de validation administrative.</i></p>
+                    <div style="border:2px solid #000; padding:20px; background-color:#ffffff; color:#000; font-family:Arial, sans-serif; border-radius:10px;">
+                        <h2 style="text-align:center; color:#FF5000; margin-bottom:0;">BUREAU SYNDONGO</h2>
+                        <p style="text-align:center; margin-top:0;"><b>DAKAR, SÉNÉGAL</b></p>
+                        <div style="border-top: 1px solid #000; margin: 10px 0;"></div>
+                        <h3 style="text-align:center; text-decoration:underline;">REÇU DE DEMANDE DE TRANSFERT</h3>
+                        <table style="width:100%; border:none;">
+                            <tr><td style="width:40%"><b>Date/Heure:</b></td><td>{date_val}</td></tr>
+                            <tr><td><b>Nom Chauffeur:</b></td><td>{gagnant['NOM']}</td></tr>
+                            <tr><td><b>N° Permis:</b></td><td>{p_input}</td></tr>
+                            <tr><td><b>Ancien Parc:</b></td><td>{gagnant['PARC']}</td></tr>
+                            <tr><td><b>Motif:</b></td><td>{motif}</td></tr>
+                        </table>
+                        <div style="border-top: 1px solid #000; margin: 10px 0;"></div>
+                        <p style="font-size:11px; text-align:center; color:#555;">
+                            <i>Ce document atteste l'enregistrement de la demande de mobilité.<br>
+                            Sous réserve de validation par la direction SY/NDONGO.</i>
+                        </p>
                     </div>
-                    """, unsafe_allow_human_formatting=True, unsafe_allow_html=True)
-                    st.info("💡 Vous pouvez faire une capture d'écran de ce reçu pour l'envoyer au chauffeur.")
+                    """, unsafe_allow_html=True)
             else:
                 st.success("✅ LIBRE : Inscription autorisée.")
 
