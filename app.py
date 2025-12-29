@@ -20,7 +20,7 @@ DB_ACCES = {
     "IBRAHIMA SY": "1000", "MARIETOU": "1044", "NDONGO GAYE": "5616",
     "LAMINE NDIAYE": "2055", "ALIOU CISSE": "2010", "ADMIN": "3289"
 }
-# SEULS CES PROFILS VOIENT L'IMPORTATION
+# SEULS CES PROFILS VOIENT L'IMPORTATION ET LE RAPPORT
 ADMINS_AUTORISES = ["ADMIN", "IBRAHIMA SY", "ALIOU CISSE"]
 
 # --- FONCTIONS ---
@@ -36,12 +36,13 @@ def standardiser_donnees(df, label_parc):
     c_permis = trouver_colonne(df, ["Permis"])
     c_nom = trouver_colonne(df, ["Nom complet", "Nom"])
     c_agent = trouver_colonne(df, ["Employé responsable", "Agent"])
+    c_courses = trouver_colonne(df, ["Commandes terminées", "Commandes au sein"])
     
     df_std = pd.DataFrame()
     df_std['NOM'] = df[c_nom] if c_nom else "Inconnu"
     df_std['PERMIS'] = df[c_permis].astype(str).str.strip() if c_permis else "N/A"
     df_std['AGENT_RESP'] = df[c_agent].fillna("Non assigné") if c_agent else "Non assigné"
-    df_std['COURSES'] = 0
+    df_std['COURSES'] = pd.to_numeric(df[c_courses], errors='coerce').fillna(0) if c_courses else 0
     df_std['TEL'] = "None"
     df_std['PARC'] = label_parc
     return df_std[cols]
@@ -49,11 +50,11 @@ def standardiser_donnees(df, label_parc):
 def charger_base_complete():
     sy = pd.read_csv(PATH_SY, sep=';') if os.path.exists(PATH_SY) else None
     nd = pd.read_csv(PATH_NDONGO, sep=';') if os.path.exists(PATH_NDONGO) else None
-    df_globale = pd.concat([standardiser_donnees(sy, "SY"), standardiser_donnees(nd, "NDONGO")], ignore_index=True)
+    df_csv = pd.concat([standardiser_donnees(sy, "SY"), standardiser_donnees(nd, "NDONGO")], ignore_index=True)
     if os.path.exists(PATH_TEMP_INSCRIPTIONS):
         df_temp = pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';')
-        df_globale = pd.concat([df_globale, df_temp], ignore_index=True)
-    return df_globale
+        df_csv = pd.concat([df_csv, df_temp], ignore_index=True)
+    return df_csv
 
 # --- INTERFACE ---
 st.sidebar.title("🏢 Bureau SyNdongo")
@@ -63,15 +64,16 @@ code_pin = st.sidebar.text_input("PIN", type="password")
 if code_pin == DB_ACCES.get(agent_user):
     base_globale = charger_base_complete()
     
-    # CONDITION POUR AFFICHER L'IMPORTATION
+    # LOGIQUE DE MENU
     if agent_user in ADMINS_AUTORISES:
-        menu = st.sidebar.radio("Navigation", ["🔍 Scanner", "📊 Rapport Hebdo", "📥 Importation Yango"])
+        menu = st.sidebar.radio("Navigation", ["🔍 Scanner", "📊 Rapport Doublons", "📥 Importation Yango"])
     else:
+        st.sidebar.info("🔓 Mode Agent")
         menu = "🔍 Scanner"
 
     if menu == "🔍 Scanner":
-        st.header("🛡️ Contrôle d'Inscription")
-        p_input = st.text_input("Numéro de Permis")
+        st.header("🛡️ Scanner Anti-Doublon")
+        p_input = st.text_input("Saisir numéro de Permis")
         if p_input:
             p_clean = str(p_input).strip()
             match = base_globale[base_globale['PERMIS'] == p_clean] if not base_globale.empty else pd.DataFrame()
@@ -82,12 +84,13 @@ if code_pin == DB_ACCES.get(agent_user):
             else:
                 st.success("✅ LIBRE")
 
-    elif menu == "📊 Rapport Hebdo":
-        st.header("Analyse de la semaine")
-        st.dataframe(base_globale, use_container_width=True)
+    elif menu == "📊 Rapport Doublons":
+        st.header("Doublons détectés dans les fichiers")
+        doublons = base_globale[base_globale.duplicated(subset=['PERMIS'], keep=False)]
+        st.dataframe(doublons, use_container_width=True)
 
     elif menu == "📥 Importation Yango":
-        st.header("Mise à jour des fichiers")
+        st.header("Mise à jour des fichiers CSV")
         up_sy = st.file_uploader("Fichier SY.csv", type="csv")
         up_nd = st.file_uploader("Fichier NDONGO.csv", type="csv")
         if st.button("🚀 Synchroniser les bases"):
