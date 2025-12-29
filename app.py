@@ -57,7 +57,7 @@ def charger_base_complete():
 
 def enregistrer_inscription(agent, permis, parc):
     nouveau = pd.DataFrame([{
-        "NOM": "NOUVELLE_INSCRIPTION",
+        "NOM": "INSCRIPTION_TEMP",
         "PERMIS": str(permis).strip(),
         "AGENT_RESP": agent,
         "COURSES": 0,
@@ -65,11 +65,8 @@ def enregistrer_inscription(agent, permis, parc):
         "PARC": parc,
         "DATE_INSCRIPTION": datetime.now().strftime("%d/%m/%Y %H:%M")
     }])
-    
-    if not os.path.exists(PATH_TEMP_INSCRIPTIONS):
-        nouveau.to_csv(PATH_TEMP_INSCRIPTIONS, index=False, sep=';', encoding='utf-8-sig')
-    else:
-        nouveau.to_csv(PATH_TEMP_INSCRIPTIONS, mode='a', header=False, index=False, sep=';', encoding='utf-8-sig')
+    header = not os.path.exists(PATH_TEMP_INSCRIPTIONS)
+    nouveau.to_csv(PATH_TEMP_INSCRIPTIONS, mode='a', index=False, sep=';', header=header, encoding='utf-8-sig')
 
 # --- INTERFACE ---
 st.sidebar.title("🏢 Bureau SyNdongo")
@@ -78,6 +75,7 @@ code_pin = st.sidebar.text_input("PIN", type="password")
 
 if code_pin == DB_ACCES.get(agent_user):
     base_globale = charger_base_complete()
+    # Le menu n'affiche l'importation que pour les ADMINS
     menu_options = ["🔍 Scanner", "📊 Rapport Semaine", "📥 Importation Yango"] if agent_user in ADMINS_AUTORISES else ["🔍 Scanner"]
     menu = st.sidebar.radio("Navigation", menu_options)
 
@@ -94,31 +92,30 @@ if code_pin == DB_ACCES.get(agent_user):
                 r = match.iloc[-1]
                 st.warning(f"📍 Parc: {r['PARC']} | Responsable: {r['AGENT_RESP']}")
             else:
-                st.success(f"✅ LIBRE : Inscription autorisée pour {p_clean}")
-                st.markdown("---")
-                # LE BLOC DE CHOIX APPARAÎT ICI
-                st.subheader("💾 Valider l'inscription maintenant")
-                parc_choisi = st.radio("Choisir le parc :", ["SY", "NDONGO"], horizontal=True)
-                if st.button("Confirmer l'inscription"):
+                st.success(f"✅ LIBRE : Prêt pour inscription")
+                # --- NOUVEAU BLOC VISIBLE ---
+                st.markdown("### 💾 Enregistrer l'inscription manuelle")
+                parc_choisi = st.radio("Sélectionner le parc cible :", ["SY", "NDONGO"], horizontal=True)
+                if st.button("Valider l'inscription chez " + parc_choisi):
                     enregistrer_inscription(agent_user, p_clean, parc_choisi)
-                    st.success(f"Permis {p_clean} enregistré chez {parc_choisi} !")
+                    st.success(f"Permis {p_clean} bloqué chez {parc_choisi} !")
                     st.rerun()
 
     elif menu == "📊 Rapport Semaine":
         st.header("Analyse de la semaine")
         if os.path.exists(PATH_TEMP_INSCRIPTIONS):
-            st.subheader("Inscriptions faites cette semaine")
+            st.subheader("Inscriptions manuelles en attente")
             st.dataframe(pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';'), use_container_width=True)
 
     elif menu == "📥 Importation Yango":
         st.header("Mise à jour Hebdomadaire")
-        up_sy = st.file_uploader("Fichier SY", type="csv")
-        up_nd = st.file_uploader("Fichier NDONGO", type="csv")
-        if st.button("🚀 Synchroniser"):
+        up_sy = st.file_uploader("Fichier SY (CSV)", type="csv")
+        up_nd = st.file_uploader("Fichier NDONGO (CSV)", type="csv")
+        if st.button("🚀 Synchroniser les bases officielles"):
             if up_sy: pd.read_csv(up_sy, sep=';').to_csv(PATH_SY, index=False, sep=';')
             if up_nd: pd.read_csv(up_nd, sep=';').to_csv(PATH_NDONGO, index=False, sep=';')
             if os.path.exists(PATH_TEMP_INSCRIPTIONS): os.remove(PATH_TEMP_INSCRIPTIONS)
-            st.success("Bases mises à jour !")
+            st.success("Bases synchronisées !")
             st.rerun()
 else:
     st.info("Veuillez entrer votre PIN.")
