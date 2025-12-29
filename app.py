@@ -11,8 +11,6 @@ if not os.path.exists(SAVE_DIR): os.makedirs(SAVE_DIR)
 
 PATH_SY = os.path.join(SAVE_DIR, "base_sy.csv")
 PATH_NDONGO = os.path.join(SAVE_DIR, "base_ndongo.csv")
-LOG_TRANSFERTS = os.path.join(SAVE_DIR, "demandes_transfert.csv")
-# Nouvelle base pour les inscriptions de la semaine en cours
 PATH_TEMP_INSCRIPTIONS = os.path.join(SAVE_DIR, "inscriptions_semaine.csv")
 
 # --- ACCÈS ---
@@ -53,8 +51,6 @@ def charger_base_complete():
     sy = pd.read_csv(PATH_SY, sep=';') if os.path.exists(PATH_SY) else None
     nd = pd.read_csv(PATH_NDONGO, sep=';') if os.path.exists(PATH_NDONGO) else None
     df_csv = pd.concat([standardiser_donnees(sy, "SY"), standardiser_donnees(nd, "NDONGO")], ignore_index=True)
-    
-    # On ajoute les inscriptions faites manuellement cette semaine
     if os.path.exists(PATH_TEMP_INSCRIPTIONS):
         df_temp = pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';')
         return pd.concat([df_csv, df_temp], ignore_index=True)
@@ -62,9 +58,9 @@ def charger_base_complete():
 
 def enregistrer_inscription(agent, permis, parc):
     data = {
-        "NOM": ["NOUVEAU"], "PERMIS": [permis], "AGENT_RESP": [agent],
+        "NOM": ["NOUVELLE_INSCRIPTION"], "PERMIS": [permis], "AGENT_RESP": [agent],
         "COURSES": [0], "TEL": [""], "PARC": [parc], 
-        "DATE_INSCRIPTION": [datetime.now().strftime("%d/%m/%Y")]
+        "DATE_INSCRIPTION": [datetime.now().strftime("%d/%m/%Y %H:%M")]
     }
     df = pd.DataFrame(data)
     header = not os.path.exists(PATH_TEMP_INSCRIPTIONS)
@@ -77,51 +73,56 @@ code_pin = st.sidebar.text_input("PIN", type="password")
 
 if code_pin == DB_ACCES.get(agent_user):
     base_globale = charger_base_complete()
-    menu_options = ["🔍 Scanner Anti-Doublon", "📊 Rapport & Transferts", "📥 Importation Yango"] if agent_user in ADMINS_AUTORISES else ["🔍 Scanner Anti-Doublon"]
+    menu_options = ["🔍 Scanner Anti-Doublon", "📊 Rapport Semaine", "📥 Importation Yango"] if agent_user in ADMINS_AUTORISES else ["🔍 Scanner Anti-Doublon"]
     menu = st.sidebar.radio("Navigation", menu_options)
 
     if menu == "🔍 Scanner Anti-Doublon":
-        st.header("🛡️ Contrôle d'Inscription")
-        p_input = st.text_input("Scanner ou Entrer le numéro de Permis")
+        st.header("🛡️ Contrôle d'Inscription Obligatoire")
+        p_input = st.text_input("Entrez le numéro de Permis à vérifier")
         
         if p_input:
             p_input = p_input.strip()
             match = base_globale[base_globale['PERMIS'] == p_input] if not base_globale.empty else pd.DataFrame()
             
             if not match.empty:
-                st.error("🚨 DOUBLON DÉTECTÉ : Déjà inscrit !")
+                st.error("🚨 DOUBLON DÉTECTÉ : Ce chauffeur est déjà dans le système !")
                 r = match.iloc[0]
-                st.warning(f"📍 Parc actuel : {r['PARC']} | Responsable : {r['AGENT_RESP']}")
+                st.warning(f"📍 Parc: {r['PARC']} | Responsable: {r['AGENT_RESP']}")
             else:
-                st.success("✅ LIBRE : Inscription autorisée.")
-                st.info("Souhaitez-vous valider l'inscription de ce chauffeur maintenant ?")
-                choix_parc = st.selectbox("Inscrire dans quel parc ?", ["SY", "NDONGO"])
-                if st.button(f"💾 Valider l'inscription chez {choix_parc}"):
-                    enregistrer_inscription(agent_user, p_input, choix_parc)
-                    st.balloons()
-                    st.success(f"Chauffeur enregistré dans la mémoire de {choix_parc}. Personne d'autre ne pourra le prendre cette semaine.")
-                    st.rerun()
+                st.success(f"✅ LIBRE : Le permis {p_input} n'existe pas encore.")
+                
+                # --- BLOC D'INSCRIPTION MANUELLE ---
+                st.markdown("---")
+                with st.container():
+                    st.subheader("💾 Enregistrer l'inscription immédiatement")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        parc_choisi = st.radio("Dans quel parc ?", ["SY", "NDONGO"])
+                    with col2:
+                        st.write("L'inscription sera bloquée pour les autres agents jusqu'à lundi prochain.")
+                        if st.button("Confirmer l'inscription"):
+                            enregistrer_inscription(agent_user, p_input, parc_choisi)
+                            st.balloons()
+                            st.success(f"Félicitations ! Permis {p_input} enregistré chez {parc_choisi}.")
+                            st.rerun()
 
-    elif menu == "📊 Rapport & Transferts":
-        st.header("Analyse & Mobilité")
-        t1, t2 = st.tabs(["📝 Inscriptions de la semaine", "🔄 Demandes de Transfert"])
-        with t1:
-            if os.path.exists(PATH_TEMP_INSCRIPTIONS):
-                st.write("Chauffeurs inscrits manuellement avant l'import hebdomadaire :")
-                st.dataframe(pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';'), use_container_width=True)
-            else: st.info("Aucune inscription manuelle cette semaine.")
+    elif menu == "📊 Rapport Semaine":
+        st.header("Suivi des inscriptions manuelles")
+        if os.path.exists(PATH_TEMP_INSCRIPTIONS):
+            df_temp = pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';')
+            st.dataframe(df_temp, use_container_width=True)
+        else:
+            st.info("Aucune inscription manuelle pour le moment.")
 
     elif menu == "📥 Importation Yango":
         st.header("Mise à jour Hebdomadaire")
-        st.warning("⚠️ L'importation des nouveaux fichiers CSV effacera la mémoire temporaire de la semaine.")
-        up_sy = st.file_uploader("Fichier SY", type="csv")
-        up_nd = st.file_uploader("Fichier NDONGO", type="csv")
+        up_sy = st.file_uploader("Fichier SY (CSV)", type="csv")
+        up_nd = st.file_uploader("Fichier NDONGO (CSV)", type="csv")
         if st.button("🚀 Synchroniser et Vider la mémoire temporaire"):
             if up_sy: pd.read_csv(up_sy, sep=';').to_csv(PATH_SY, index=False, sep=';')
             if up_nd: pd.read_csv(up_nd, sep=';').to_csv(PATH_NDONGO, index=False, sep=';')
-            # On efface la base temporaire après l'import officiel
             if os.path.exists(PATH_TEMP_INSCRIPTIONS): os.remove(PATH_TEMP_INSCRIPTIONS)
-            st.success("Bases actualisées et mémoire remise à zéro !")
+            st.success("Données synchronisées !")
             st.rerun()
 else:
-    st.info("Veuillez entrer votre PIN.")
+    st.info("Entrez votre PIN pour scanner.")
