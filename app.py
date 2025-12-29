@@ -12,6 +12,8 @@ if not os.path.exists(SAVE_DIR): os.makedirs(SAVE_DIR)
 PATH_SY = os.path.join(SAVE_DIR, "base_sy.csv")
 PATH_NDONGO = os.path.join(SAVE_DIR, "base_ndongo.csv")
 LOG_TRANSFERTS = os.path.join(SAVE_DIR, "demandes_transfert.csv")
+# Nouvelle base pour les inscriptions de la semaine en cours
+PATH_TEMP_INSCRIPTIONS = os.path.join(SAVE_DIR, "inscriptions_semaine.csv")
 
 # --- ACCÈS ---
 DB_ACCES = {
@@ -47,21 +49,26 @@ def standardiser_donnees(df, label_parc):
     df_std['PARC'] = label_parc
     return df_std[cols]
 
-def log_transfert(agent, permis, nom, ancien_parc, motif):
-    date_h = datetime.now().strftime("%d/%m/%Y %H:%M")
-    data = {
-        "Date": [date_h], "Agent_Saisissant": [agent], "Chauffeur": [nom],
-        "Permis": [permis], "Ancien_Parc": [ancien_parc], "Motif": [motif]
-    }
-    df = pd.DataFrame(data)
-    header = not os.path.exists(LOG_TRANSFERTS)
-    df.to_csv(LOG_TRANSFERTS, mode='a', index=False, sep=';', header=header, encoding='utf-8-sig')
-    return date_h
-
 def charger_base_complete():
     sy = pd.read_csv(PATH_SY, sep=';') if os.path.exists(PATH_SY) else None
     nd = pd.read_csv(PATH_NDONGO, sep=';') if os.path.exists(PATH_NDONGO) else None
-    return pd.concat([standardiser_donnees(sy, "SY"), standardiser_donnees(nd, "NDONGO")], ignore_index=True)
+    df_csv = pd.concat([standardiser_donnees(sy, "SY"), standardiser_donnees(nd, "NDONGO")], ignore_index=True)
+    
+    # On ajoute les inscriptions faites manuellement cette semaine
+    if os.path.exists(PATH_TEMP_INSCRIPTIONS):
+        df_temp = pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';')
+        return pd.concat([df_csv, df_temp], ignore_index=True)
+    return df_csv
+
+def enregistrer_inscription(agent, permis, parc):
+    data = {
+        "NOM": ["NOUVEAU"], "PERMIS": [permis], "AGENT_RESP": [agent],
+        "COURSES": [0], "TEL": [""], "PARC": [parc], 
+        "DATE_INSCRIPTION": [datetime.now().strftime("%d/%m/%Y")]
+    }
+    df = pd.DataFrame(data)
+    header = not os.path.exists(PATH_TEMP_INSCRIPTIONS)
+    df.to_csv(PATH_TEMP_INSCRIPTIONS, mode='a', index=False, sep=';', header=header, encoding='utf-8-sig')
 
 # --- INTERFACE ---
 st.sidebar.title("🏢 Bureau SyNdongo")
@@ -82,63 +89,39 @@ if code_pin == DB_ACCES.get(agent_user):
             match = base_globale[base_globale['PERMIS'] == p_input] if not base_globale.empty else pd.DataFrame()
             
             if not match.empty:
-                st.error("🚨 CHAUFFEUR DÉJÀ EXISTANT")
-                gagnant = match.sort_values(by='COURSES', ascending=False).iloc[0]
-                for _, r in match.iterrows():
-                    st.warning(f"📍 {r['PARC']} | Agent: {r['AGENT_RESP']} | {int(r['COURSES'])} courses")
-                
-                st.markdown("---")
-                st.subheader("🔄 Demande de changement de parc")
-                motif = st.selectbox("Motif du changement", ["Changement de véhicule", "Décision du Propriétaire", "Souhait du chauffeur", "Autre"])
-                
-                if st.button("📝 Enregistrer la demande"):
-                    date_val = log_transfert(agent_user, p_input, gagnant['NOM'], gagnant['PARC'], motif)
-                    st.success("✅ Demande enregistrée !")
-                    
-                    st.markdown(f"""
-                    <div style="border:2px solid #000; padding:20px; background-color:#ffffff; color:#000; font-family:Arial, sans-serif; border-radius:10px;">
-                        <h2 style="text-align:center; color:#FF5000; margin-bottom:0;">BUREAU SYNDONGO</h2>
-                        <p style="text-align:center; margin-top:0;"><b>DAKAR, SÉNÉGAL</b></p>
-                        <div style="border-top: 1px solid #000; margin: 10px 0;"></div>
-                        <h3 style="text-align:center; text-decoration:underline;">REÇU DE DEMANDE DE TRANSFERT</h3>
-                        <table style="width:100%; border:none;">
-                            <tr><td style="width:40%"><b>Date/Heure:</b></td><td>{date_val}</td></tr>
-                            <tr><td><b>Nom Chauffeur:</b></td><td>{gagnant['NOM']}</td></tr>
-                            <tr><td><b>N° Permis:</b></td><td>{p_input}</td></tr>
-                            <tr><td><b>Ancien Parc:</b></td><td>{gagnant['PARC']}</td></tr>
-                            <tr><td><b>Motif:</b></td><td>{motif}</td></tr>
-                        </table>
-                        <div style="border-top: 1px solid #000; margin: 10px 0;"></div>
-                        <p style="font-size:11px; text-align:center; color:#555;">
-                            <i>Ce document atteste l'enregistrement de la demande de mobilité.<br>
-                            Sous réserve de validation par la direction SY/NDONGO.</i>
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                st.error("🚨 DOUBLON DÉTECTÉ : Déjà inscrit !")
+                r = match.iloc[0]
+                st.warning(f"📍 Parc actuel : {r['PARC']} | Responsable : {r['AGENT_RESP']}")
             else:
                 st.success("✅ LIBRE : Inscription autorisée.")
+                st.info("Souhaitez-vous valider l'inscription de ce chauffeur maintenant ?")
+                choix_parc = st.selectbox("Inscrire dans quel parc ?", ["SY", "NDONGO"])
+                if st.button(f"💾 Valider l'inscription chez {choix_parc}"):
+                    enregistrer_inscription(agent_user, p_input, choix_parc)
+                    st.balloons()
+                    st.success(f"Chauffeur enregistré dans la mémoire de {choix_parc}. Personne d'autre ne pourra le prendre cette semaine.")
+                    st.rerun()
 
     elif menu == "📊 Rapport & Transferts":
         st.header("Analyse & Mobilité")
-        t1, t2 = st.tabs(["🔄 Demandes de Transfert", "🆕 Doublons Semaine"])
+        t1, t2 = st.tabs(["📝 Inscriptions de la semaine", "🔄 Demandes de Transfert"])
         with t1:
-            if os.path.exists(LOG_TRANSFERTS):
-                df_trans = pd.read_csv(LOG_TRANSFERTS, sep=';')
-                st.dataframe(df_trans, use_container_width=True)
-            else: st.info("Aucun transfert.")
-        with t2:
-            if not base_globale.empty:
-                doublons = base_globale[base_globale.duplicated(subset=['PERMIS'], keep=False)]
-                st.dataframe(doublons, use_container_width=True)
+            if os.path.exists(PATH_TEMP_INSCRIPTIONS):
+                st.write("Chauffeurs inscrits manuellement avant l'import hebdomadaire :")
+                st.dataframe(pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';'), use_container_width=True)
+            else: st.info("Aucune inscription manuelle cette semaine.")
 
     elif menu == "📥 Importation Yango":
-        st.header("Mise à jour")
+        st.header("Mise à jour Hebdomadaire")
+        st.warning("⚠️ L'importation des nouveaux fichiers CSV effacera la mémoire temporaire de la semaine.")
         up_sy = st.file_uploader("Fichier SY", type="csv")
         up_nd = st.file_uploader("Fichier NDONGO", type="csv")
-        if st.button("🚀 Synchroniser"):
+        if st.button("🚀 Synchroniser et Vider la mémoire temporaire"):
             if up_sy: pd.read_csv(up_sy, sep=';').to_csv(PATH_SY, index=False, sep=';')
             if up_nd: pd.read_csv(up_nd, sep=';').to_csv(PATH_NDONGO, index=False, sep=';')
-            st.success("Bases actualisées !")
+            # On efface la base temporaire après l'import officiel
+            if os.path.exists(PATH_TEMP_INSCRIPTIONS): os.remove(PATH_TEMP_INSCRIPTIONS)
+            st.success("Bases actualisées et mémoire remise à zéro !")
             st.rerun()
 else:
-    st.info("Veuillez entrer votre PIN pour accéder au bureau numérique.")
+    st.info("Veuillez entrer votre PIN.")
