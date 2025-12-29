@@ -50,12 +50,14 @@ def charger_base_complete():
     nd = pd.read_csv(PATH_NDONGO, sep=';') if os.path.exists(PATH_NDONGO) else None
     df_globale = pd.concat([standardiser_donnees(sy, "SY"), standardiser_donnees(nd, "NDONGO")], ignore_index=True)
     
+    # CHARGEMENT DE LA MÉMOIRE TEMPORAIRE
     if os.path.exists(PATH_TEMP_INSCRIPTIONS):
         df_temp = pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';', dtype={'PERMIS': str})
         df_globale = pd.concat([df_globale, df_temp], ignore_index=True)
     return df_globale
 
 def enregistrer_inscription(agent, permis, parc):
+    # CRÉATION DU DICTIONNAIRE SÉCURISÉ
     nouveau = pd.DataFrame([{
         "NOM": "INSCRIPTION_TEMP",
         "PERMIS": str(permis).strip(),
@@ -75,13 +77,12 @@ code_pin = st.sidebar.text_input("PIN", type="password")
 
 if code_pin == DB_ACCES.get(agent_user):
     base_globale = charger_base_complete()
-    # Le menu n'affiche l'importation que pour les ADMINS
     menu_options = ["🔍 Scanner", "📊 Rapport Semaine", "📥 Importation Yango"] if agent_user in ADMINS_AUTORISES else ["🔍 Scanner"]
     menu = st.sidebar.radio("Navigation", menu_options)
 
     if menu == "🔍 Scanner":
         st.header("🛡️ Contrôle d'Inscription")
-        p_input = st.text_input("Entrez le numéro de Permis")
+        p_input = st.text_input("Tapez le numéro de Permis ici", key="scan_input")
         
         if p_input:
             p_clean = str(p_input).strip()
@@ -90,32 +91,37 @@ if code_pin == DB_ACCES.get(agent_user):
             if not match.empty:
                 st.error(f"🚨 DOUBLON DÉTECTÉ")
                 r = match.iloc[-1]
-                st.warning(f"📍 Parc: {r['PARC']} | Responsable: {r['AGENT_RESP']}")
+                st.warning(f"📍 Ce permis est déjà chez **{r['PARC']}** (Responsable: {r['AGENT_RESP']})")
             else:
-                st.success(f"✅ LIBRE : Prêt pour inscription")
-                # --- NOUVEAU BLOC VISIBLE ---
-                st.markdown("### 💾 Enregistrer l'inscription manuelle")
-                parc_choisi = st.radio("Sélectionner le parc cible :", ["SY", "NDONGO"], horizontal=True)
-                if st.button("Valider l'inscription chez " + parc_choisi):
-                    enregistrer_inscription(agent_user, p_clean, parc_choisi)
-                    st.success(f"Permis {p_clean} bloqué chez {parc_choisi} !")
-                    st.rerun()
+                st.success(f"✅ LIBRE : Ce permis peut être inscrit.")
+                
+                # --- BLOC D'INSCRIPTION TEMPORAIRE VISIBLE ---
+                st.info("### 💾 ENREGISTREMENT IMMÉDIAT")
+                with st.container(border=True):
+                    parc_choisi = st.radio("Inscrire dans quel parc ?", ["SY", "NDONGO"], horizontal=True)
+                    if st.button("CONFIRMER L'INSCRIPTION ET BLOQUER LE PERMIS"):
+                        enregistrer_inscription(agent_user, p_clean, parc_choisi)
+                        st.balloons()
+                        st.success(f"TERMINÉ ! Le permis {p_clean} est bloqué chez {parc_choisi} jusqu'à lundi.")
+                        st.rerun()
 
     elif menu == "📊 Rapport Semaine":
         st.header("Analyse de la semaine")
         if os.path.exists(PATH_TEMP_INSCRIPTIONS):
-            st.subheader("Inscriptions manuelles en attente")
+            st.subheader("📝 Inscriptions manuelles faites cette semaine")
             st.dataframe(pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';'), use_container_width=True)
+        else:
+            st.info("Aucune inscription manuelle enregistrée.")
 
     elif menu == "📥 Importation Yango":
         st.header("Mise à jour Hebdomadaire")
         up_sy = st.file_uploader("Fichier SY (CSV)", type="csv")
         up_nd = st.file_uploader("Fichier NDONGO (CSV)", type="csv")
-        if st.button("🚀 Synchroniser les bases officielles"):
+        if st.button("🚀 SYNCHRONISER ET VIDER LA MÉMOIRE"):
             if up_sy: pd.read_csv(up_sy, sep=';').to_csv(PATH_SY, index=False, sep=';')
             if up_nd: pd.read_csv(up_nd, sep=';').to_csv(PATH_NDONGO, index=False, sep=';')
             if os.path.exists(PATH_TEMP_INSCRIPTIONS): os.remove(PATH_TEMP_INSCRIPTIONS)
-            st.success("Bases synchronisées !")
+            st.success("Bases mises à jour ! La mémoire temporaire a été vidée.")
             st.rerun()
 else:
     st.info("Veuillez entrer votre PIN.")
