@@ -32,39 +32,53 @@ def standardiser_donnees(df, label_parc):
     cols = ['NOM', 'PERMIS', 'AGENT_RESP', 'COURSES', 'TEL', 'PARC']
     if df is None or df.empty: return pd.DataFrame(columns=cols)
     df.columns = df.columns.str.strip().str.replace('"', '').str.replace("'", "")
-    c_nom = trouver_colonne(df, ["Nom complet", "Nom"])
     c_permis = trouver_colonne(df, ["Permis"])
+    c_nom = trouver_colonne(df, ["Nom complet", "Nom"])
     c_agent = trouver_colonne(df, ["Employé responsable", "Agent"])
-    c_courses = trouver_colonne(df, ["Commandes terminées", "Commandes au sein"])
-    c_tel = trouver_colonne(df, ["Numéro de téléphone", "téléphone"])
     
     df_std = pd.DataFrame()
     df_std['NOM'] = df[c_nom] if c_nom else "Inconnu"
     df_std['PERMIS'] = df[c_permis].astype(str).str.strip() if c_permis else "N/A"
     df_std['AGENT_RESP'] = df[c_agent].fillna("Non assigné") if c_agent else "Non assigné"
-    df_std['COURSES'] = pd.to_numeric(df[c_courses], errors='coerce').fillna(0) if c_courses else 0
-    df_std['TEL'] = df[c_tel].astype(str).str.replace('+', '').str.strip() if c_tel else ""
+    df_std['COURSES'] = 0
+    df_std['TEL'] = ""
     df_std['PARC'] = label_parc
     return df_std[cols]
 
 def charger_base_complete():
+    # Lecture des bases officielles
     sy = pd.read_csv(PATH_SY, sep=';') if os.path.exists(PATH_SY) else None
     nd = pd.read_csv(PATH_NDONGO, sep=';') if os.path.exists(PATH_NDONGO) else None
-    df_csv = pd.concat([standardiser_donnees(sy, "SY"), standardiser_donnees(nd, "NDONGO")], ignore_index=True)
+    
+    df_sy = standardiser_donnees(sy, "SY")
+    df_nd = standardiser_donnees(nd, "NDONGO")
+    
+    # Fusion des bases officielles
+    df_globale = pd.concat([df_sy, df_nd], ignore_index=True)
+    
+    # AJOUT CRUCIAL : On ajoute les inscriptions manuelles pour le blocage temps réel
     if os.path.exists(PATH_TEMP_INSCRIPTIONS):
         df_temp = pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';')
-        return pd.concat([df_csv, df_temp], ignore_index=True)
-    return df_csv
+        df_temp['PERMIS'] = df_temp['PERMIS'].astype(str).str.strip()
+        df_globale = pd.concat([df_globale, df_temp], ignore_index=True)
+        
+    return df_globale
 
 def enregistrer_inscription(agent, permis, parc):
     data = {
-        "NOM": ["NOUVELLE_INSCRIPTION"], "PERMIS": [permis], "AGENT_RESP": [agent],
-        "COURSES": [0], "TEL": [""], "PARC": [parc], 
+        "NOM": ["NOUVELLE_INSCRIPTION"], 
+        "PERMIS": [str(permis).strip()], 
+        "AGENT_RESP": [agent],
+        "COURSES": [0], 
+        "TEL": ["None"], 
+        "PARC": [parc], 
         "DATE_INSCRIPTION": [datetime.now().strftime("%d/%m/%Y %H:%M")]
     }
     df = pd.DataFrame(data)
-    header = not os.path.exists(PATH_TEMP_INSCRIPTIONS)
-    df.to_csv(PATH_TEMP_INSCRIPTIONS, mode='a', index=False, sep=';', header=header, encoding='utf-8-sig')
+    if not os.path.exists(PATH_TEMP_INSCRIPTIONS):
+        df.to_csv(PATH_TEMP_INSCRIPTIONS, index=False, sep=';', encoding='utf-8-sig')
+    else:
+        df.to_csv(PATH_TEMP_INSCRIPTIONS, mode='a', header=False, index=False, sep=';', encoding='utf-8-sig')
 
 # --- INTERFACE ---
 st.sidebar.title("🏢 Bureau SyNdongo")
@@ -72,8 +86,10 @@ agent_user = st.sidebar.selectbox("Agent", list(DB_ACCES.keys()))
 code_pin = st.sidebar.text_input("PIN", type="password")
 
 if code_pin == DB_ACCES.get(agent_user):
+    # On recharge la base à chaque action pour garantir le blocage immédiat
     base_globale = charger_base_complete()
-    menu_options = ["🔍 Scanner Anti-Doublon", "📊 Rapport Semaine", "📥 Importation Yango"] if agent_user in ADMINS_AUTORISES else ["🔍 Scanner Anti-Doublon"]
+    
+    menu_options = ["🔍 Scanner Anti-Doublon", "📊 Rapport Hebdo", "📥 Importation Yango"] if agent_user in ADMINS_AUTORISES else ["🔍 Scanner Anti-Doublon"]
     menu = st.sidebar.radio("Navigation", menu_options)
 
     if menu == "🔍 Scanner Anti-Doublon":
@@ -81,48 +97,48 @@ if code_pin == DB_ACCES.get(agent_user):
         p_input = st.text_input("Entrez le numéro de Permis à vérifier")
         
         if p_input:
-            p_input = p_input.strip()
-            match = base_globale[base_globale['PERMIS'] == p_input] if not base_globale.empty else pd.DataFrame()
+            p_input = str(p_input).strip()
+            # Vérification dans la base fusionnée (Yango + Inscriptions manuelles)
+            match = base_globale[base_globale['PERMIS'] == p_input]
             
             if not match.empty:
-                st.error("🚨 DOUBLON DÉTECTÉ : Ce chauffeur est déjà dans le système !")
-                r = match.iloc[0]
+                st.error(f"🚨 DOUBLON DÉTECTÉ : Ce permis ({p_input}) est déjà réservé !")
+                r = match.iloc[-1] # On prend la dernière info connue
                 st.warning(f"📍 Parc: {r['PARC']} | Responsable: {r['AGENT_RESP']}")
             else:
                 st.success(f"✅ LIBRE : Le permis {p_input} n'existe pas encore.")
-                
-                # --- BLOC D'INSCRIPTION MANUELLE ---
                 st.markdown("---")
-                with st.container():
-                    st.subheader("💾 Enregistrer l'inscription immédiatement")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        parc_choisi = st.radio("Dans quel parc ?", ["SY", "NDONGO"])
-                    with col2:
-                        st.write("L'inscription sera bloquée pour les autres agents jusqu'à lundi prochain.")
-                        if st.button("Confirmer l'inscription"):
-                            enregistrer_inscription(agent_user, p_input, parc_choisi)
-                            st.balloons()
-                            st.success(f"Félicitations ! Permis {p_input} enregistré chez {parc_choisi}.")
-                            st.rerun()
+                st.subheader("💾 Enregistrer l'inscription immédiatement")
+                col1, col2 = st.columns(2)
+                with col1:
+                    parc_choisi = st.radio("Dans quel parc ?", ["SY", "NDONGO"])
+                with col2:
+                    if st.button("Confirmer l'inscription"):
+                        enregistrer_inscription(agent_user, p_input, parc_choisi)
+                        st.success(f"Permis {p_input} bloqué chez {parc_choisi} !")
+                        st.rerun() # On force le redémarrage pour que le scanner voie le nouveau permis
 
-    elif menu == "📊 Rapport Semaine":
-        st.header("Suivi des inscriptions manuelles")
+    elif menu == "📊 Rapport Hebdo":
+        st.header("Analyse de la semaine")
         if os.path.exists(PATH_TEMP_INSCRIPTIONS):
+            st.subheader("Inscriptions manuelles en attente d'import")
             df_temp = pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';')
             st.dataframe(df_temp, use_container_width=True)
-        else:
-            st.info("Aucune inscription manuelle pour le moment.")
+        
+        if not base_globale.empty:
+            st.subheader("Doublons détectés dans les fichiers Yango")
+            doublons = base_globale[base_globale.duplicated(subset=['PERMIS'], keep=False)]
+            st.dataframe(doublons, use_container_width=True)
 
     elif menu == "📥 Importation Yango":
         st.header("Mise à jour Hebdomadaire")
         up_sy = st.file_uploader("Fichier SY (CSV)", type="csv")
         up_nd = st.file_uploader("Fichier NDONGO (CSV)", type="csv")
-        if st.button("🚀 Synchroniser et Vider la mémoire temporaire"):
+        if st.button("🚀 Synchroniser"):
             if up_sy: pd.read_csv(up_sy, sep=';').to_csv(PATH_SY, index=False, sep=';')
             if up_nd: pd.read_csv(up_nd, sep=';').to_csv(PATH_NDONGO, index=False, sep=';')
             if os.path.exists(PATH_TEMP_INSCRIPTIONS): os.remove(PATH_TEMP_INSCRIPTIONS)
-            st.success("Données synchronisées !")
+            st.success("Données synchronisées ! La mémoire temporaire a été vidée.")
             st.rerun()
 else:
-    st.info("Entrez votre PIN pour scanner.")
+    st.info("Entrez votre PIN pour accéder au système.")
