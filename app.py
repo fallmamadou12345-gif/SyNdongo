@@ -23,7 +23,7 @@ DB_ACCES = {
     "IBRAHIMA SY": "1000", "MARIETOU": "1044", "NDONGO GAYE": "5616",
     "LAMINE NDIAYE": "2055", "ALIOU CISSE": "2010", "ADMIN": "3289"
 }
-ADMINS_AUTORISES = ["ADMIN", "IBRAHIMA SY", "ALIOU CISSE"]
+ADMINS_AUTORISES = ["ADMIN", "IBRAHIMA SY", "ALIOU CISSE", "LAMINE NDIAYE"]
 
 # --- ALERTES ---
 def jouer_alerte():
@@ -199,3 +199,4 @@ else:
             if os.path.exists(PATH_TEMP_INSCRIPTIONS): os.remove(PATH_TEMP_INSCRIPTIONS)
             st.success("Synchronisation terminée ! Mémoire temporaire purgée.")
             st.rerun()
+
