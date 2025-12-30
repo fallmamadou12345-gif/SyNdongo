@@ -18,7 +18,7 @@ LOG_MOUVEMENTS = os.path.join(SAVE_DIR, "log_mouvements.csv")
 
 # --- ACCÈS ---
 DB_ACCES = {
-    "COUMBA BA": "1111", "ADAMA MBAYE": "2222", "RAMATA GAYE": "3333",
+    "OUMOU FAYE": "2110","COUMBA BA": "1111", "ADAMA MBAYE": "2222", "RAMATA GAYE": "3333",
     "EL HADJI THIAM": "4444", "ADJA SY": "5555", "THIERNO SADOU": "6666",
     "IBRAHIMA SY": "1000", "MARIETOU": "1044", "NDONGO GAYE": "5616",
     "LAMINE NDIAYE": "2055", "ALIOU CISSE": "2010", "ADMIN": "3289"
@@ -199,4 +199,5 @@ else:
             if os.path.exists(PATH_TEMP_INSCRIPTIONS): os.remove(PATH_TEMP_INSCRIPTIONS)
             st.success("Synchronisation terminée ! Mémoire temporaire purgée.")
             st.rerun()
+
 
