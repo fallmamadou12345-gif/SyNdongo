@@ -57,9 +57,12 @@ def standardiser_donnees(df, label_parc):
     return df_std[cols]
 
 def charger_base_complete():
+    # Lecture directe sans cache
     sy = pd.read_csv(PATH_SY, sep=';') if os.path.exists(PATH_SY) else None
     nd = pd.read_csv(PATH_NDONGO, sep=';') if os.path.exists(PATH_NDONGO) else None
     df_csv = pd.concat([standardiser_donnees(sy, "SY"), standardiser_donnees(nd, "NDONGO")], ignore_index=True)
+    
+    # Ajout crucial des inscriptions en temps réel
     if os.path.exists(PATH_TEMP_INSCRIPTIONS):
         df_temp = pd.read_csv(PATH_TEMP_INSCRIPTIONS, sep=';', dtype={'PERMIS': str})
         for col in ['DERNIERE_ACT', 'DATE_DEBUT']:
@@ -94,53 +97,54 @@ if not st.session_state.auth:
         else: st.sidebar.error("PIN Incorrect")
 else:
     # --- APP DÉVERROUILLÉE ---
-    base_globale = charger_base_complete()
     menu_opt = ["🔍 Recherche & Scan"]
     if st.session_state.user in ADMINS_AUTORISES: menu_opt += ["📊 Rapports & Performance", "📥 Importation Yango"]
     menu = st.sidebar.radio("Navigation", menu_opt)
 
     if menu == "🔍 Recherche & Scan":
         st.header("🔍 Contrôle des Disponibilités")
-        p_input = st.text_input("Numéro de Permis")
+        # On recharge la base à chaque fois qu'on arrive sur cette page
+        base_globale = charger_base_complete()
         
-        if p_input:
-            p_clean = str(p_input).strip()
-            match = base_globale[base_globale['PERMIS'] == p_clean]
-            
-            if not match.empty:
-                r = match.iloc[-1]
-                jouer_alerte()
-                st.markdown(f"<h1 style='color: #ff4b4b; text-align: center; border: 3px solid red;'>🚨 EXISTANT SUR : {r['PARC']}</h1>", unsafe_allow_html=True)
-                st.warning(f"Responsable : {r['AGENT_RESP']} | Courses : {int(r['COURSES'])}")
+        p_input = st.text_input("Saisir le numéro de Permis")
+        
+        # Le bouton de recherche est nécessaire pour valider la saisie
+        if st.button("Lancer la Recherche 🚀") or p_input:
+            if p_input:
+                p_clean = str(p_input).strip()
+                # Nouvelle recherche forcée dans la base actualisée
+                match = base_globale[base_globale['PERMIS'] == p_clean]
                 
-                with st.expander("📝 Demander un transfert"):
-                    motif_t = st.selectbox("Raison", ["Décision Propriétaire", "Changement Véhicule", "Souhait Chauffeur"])
-                    cible_t = "NDONGO" if r['PARC'] == "SY" else "SY"
-                    if st.button(f"Confirmer transfert vers {cible_t} ✅"):
-                        enregistrer_action(st.session_state.user, p_clean, r['NOM'], r['PARC'], cible_t, motif_t, "TRANSFERT")
-                        st.success("Transfert enregistré !")
-                        st.rerun()
-            else:
-                st.success("✅ LIBRE : Ce chauffeur peut être recruté.")
-                st.divider()
-                # Bloc formulaire pour figer les sélections
-                with st.form("form_inscription"):
-                    parc_choisi = st.radio("Sélectionner le Parc d'inscription", ["SY", "NDONGO"], horizontal=True)
-                    submit_btn = st.form_submit_button("💾 VALIDER L'INSCRIPTION MAINTENANT")
+                if not match.empty:
+                    r = match.iloc[-1]
+                    jouer_alerte()
+                    st.markdown(f"<h1 style='color: #ff4b4b; text-align: center; border: 3px solid red;'>🚨 EXISTANT SUR : {r['PARC']}</h1>", unsafe_allow_html=True)
+                    st.warning(f"Responsable : {r['AGENT_RESP']} | Courses : {int(r['COURSES'])}")
                     
-                    if submit_btn:
-                        enregistrer_action(st.session_state.user, p_clean, "NOUVEAU", "AUCUN", parc_choisi, "Recrutement", "INSCRIPTION")
-                        st.balloons()
-                        st.success(f"Enregistré avec succès sur {parc_choisi}")
-                        st.rerun()
+                    with st.expander("📝 Demander un transfert"):
+                        motif_t = st.selectbox("Raison", ["Décision Propriétaire", "Changement Véhicule", "Souhait Chauffeur"])
+                        cible_t = "NDONGO" if r['PARC'] == "SY" else "SY"
+                        if st.button(f"Confirmer transfert vers {cible_t} ✅"):
+                            enregistrer_action(st.session_state.user, p_clean, r['NOM'], r['PARC'], cible_t, motif_t, "TRANSFERT")
+                            st.success("Transfert enregistré !")
+                            st.rerun()
+                else:
+                    st.success("✅ LIBRE : Ce chauffeur peut être recruté.")
+                    st.divider()
+                    # Formulaire pour éviter les bugs de sélection NDONGO/SY
+                    with st.form("inscription_form"):
+                        parc_choisi = st.radio("Inscrire dans quel parc ?", ["SY", "NDONGO"], horizontal=True)
+                        if st.form_submit_button("💾 VALIDER L'INSCRIPTION"):
+                            enregistrer_action(st.session_state.user, p_clean, "NOUVEAU", "AUCUN", parc_choisi, "Recrutement", "INSCRIPTION")
+                            st.balloons()
+                            st.rerun()
 
     elif menu == "📊 Rapports & Performance":
-        st.header("📊 Analyse des Performances et Flux")
-        d_range = st.date_input("Période d'analyse", [date.today(), date.today()])
-        
+        st.header("📊 Rapports et Analyse")
+        d_range = st.date_input("Période", [date.today(), date.today()])
         if len(d_range) == 2:
             start_p, end_p = d_range[0], d_range[1]
-            t1, t2, t3 = st.tabs(["🏆 Podium Agents", "📈 Flux de Pêche", "📋 Journal des Activités"])
+            t1, t2, t3 = st.tabs(["🏆 Podium Agents", "📈 Flux de Pêche", "📋 Journal"])
             
             with t1:
                 if os.path.exists(LOG_MOUVEMENTS):
@@ -148,7 +152,6 @@ else:
                     df_log['DATE'] = pd.to_datetime(df_log['DATE']).dt.date
                     df_f = df_log[(df_log['DATE'] >= start_p) & (df_log['DATE'] <= end_p)]
                     
-                    # Fusion par nom d'Agent (robuste)
                     df_ins = df_f[df_f['TYPE'] == 'INSCRIPTION']['AGENT'].value_counts().reset_index()
                     df_ins.columns = ['Agent', 'Inscriptions']
                     df_doub = df_f[df_f['TYPE'] == 'TRANSFERT']['AGENT'].value_counts().reset_index()
@@ -156,48 +159,32 @@ else:
                     
                     df_perf = pd.merge(df_ins, df_doub, on='Agent', how='outer').fillna(0)
                     df_perf['Score'] = df_perf['Inscriptions'] - df_perf['Doublons']
-                    
-                    # Affichage des médailles
-                    top_agents = df_perf.sort_values('Score', ascending=False).reset_index(drop=True)
-                    for i, row in top_agents.head(3).iterrows():
-                        medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉"
-                        st.info(f"{medal} **{row['Agent']}** | Score: {int(row['Score'])} (✅ {int(row['Inscriptions'])} inscr. / ❌ {int(row['Doublons'])} existants rencontrés)")
-                    st.table(top_agents)
-                else: st.info("Aucun log d'activité pour le moment.")
+                    st.table(df_perf.sort_values('Score', ascending=False).reset_index(drop=True))
 
             with t2:
                 if os.path.exists(PATH_SY) and os.path.exists(PATH_NDONGO):
                     sy_f = standardiser_donnees(pd.read_csv(PATH_SY, sep=';'), "SY")
                     nd_f = standardiser_donnees(pd.read_csv(PATH_NDONGO, sep=';'), "NDONGO")
-                    
-                    # Filtre par date
                     sy_f = sy_f[(sy_f['DATE_DEBUT'].dt.date >= start_p) & (sy_f['DATE_DEBUT'].dt.date <= end_p)]
                     nd_f = nd_f[(nd_f['DATE_DEBUT'].dt.date >= start_p) & (nd_f['DATE_DEBUT'].dt.date <= end_p)]
-                    
                     common = set(sy_f['PERMIS']).intersection(set(nd_f['PERMIS']))
                     if common:
                         m = pd.merge(sy_f[sy_f['PERMIS'].isin(common)], nd_f[nd_f['PERMIS'].isin(common)], on='PERMIS', suffixes=('_SY', '_ND'))
-                        sy_p = len(m[m['DATE_DEBUT_SY'] > m['DATE_DEBUT_ND']])
-                        nd_p = len(m[m['DATE_DEBUT_ND'] > m['DATE_DEBUT_SY']])
-                        c1, c2 = st.columns(2)
-                        c1.metric("SY a recruté chez NDONGO", sy_p)
-                        c2.metric("NDONGO a recruté chez SY", nd_p)
-                        st.plotly_chart(px.bar(x=["SY", "NDONGO"], y=[sy_p, nd_p], color=["SY", "NDONGO"], title="Flux Concurrentiel entre Parcs"))
-                    else: st.info("Aucun chauffeur n'est passé d'un parc à l'autre sur cette période.")
+                        sy_p, nd_p = len(m[m['DATE_DEBUT_SY'] > m['DATE_DEBUT_ND']]), len(m[m['DATE_DEBUT_ND'] > m['DATE_DEBUT_SY']])
+                        c1, c2 = st.columns(2); c1.metric("SY a pris", sy_p); c2.metric("NDONGO a pris", nd_p)
+                        st.plotly_chart(px.bar(x=["SY", "NDONGO"], y=[sy_p, nd_p], color=["SY", "NDONGO"]))
 
             with t3:
                 if os.path.exists(LOG_MOUVEMENTS):
-                    st.dataframe(df_f.sort_values(['DATE', 'HEURE'], ascending=False))
+                    df_log = pd.read_csv(LOG_MOUVEMENTS, sep=';')
+                    df_log['DATE'] = pd.to_datetime(df_log['DATE']).dt.date
+                    st.dataframe(df_log[(df_log['DATE'] >= start_p) & (df_log['DATE'] <= end_p)].sort_values(['DATE', 'HEURE'], ascending=False))
 
     elif menu == "📥 Importation Yango":
-        st.header("📥 Mise à jour des Bases Yango")
-        f_sy = st.file_uploader("Importer CSV SY", type="csv")
-        f_nd = st.file_uploader("Importer CSV NDONGO", type="csv")
-        if st.button("🚀 Lancer la Synchronisation"):
+        st.header("📥 Mise à jour")
+        f_sy = st.file_uploader("Fichier SY", type="csv"); f_nd = st.file_uploader("Fichier NDONGO", type="csv")
+        if st.button("🚀 Synchroniser"):
             if f_sy: pd.read_csv(f_sy, sep=';').to_csv(PATH_SY, index=False, sep=';')
             if f_nd: pd.read_csv(f_nd, sep=';').to_csv(PATH_NDONGO, index=False, sep=';')
             if os.path.exists(PATH_TEMP_INSCRIPTIONS): os.remove(PATH_TEMP_INSCRIPTIONS)
-            st.success("Synchronisation terminée ! Mémoire temporaire purgée.")
-            st.rerun()
-
-
+            st.success("Bases synchronisées."); st.rerun()
